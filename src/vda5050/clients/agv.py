@@ -118,11 +118,17 @@ class AGVClient(VDA5050BaseClient):
         """
         Publish this AGV's connection status.
         """
+        if not self._connected:
+            raise VDA5050Error("Not connected to VDA5050 system")
+            
         try:
-            return await self._publish_message(
-                message_type="connection",
-                message=connection_state  # raw string payload allowed
-            )
-        except VDA5050Error as e:
+            topic = self.topic_manager.get_publish_topic("connection")
+            # For connection messages, we can publish the raw string
+            success = await self.mqtt.publish(topic, connection_state)
+            if not success:
+                raise VDA5050Error("Failed to publish connection message")
+            logger.debug(f"Published connection state to {topic}")
+            return True
+        except Exception as e:
             logger.error("Failed to update connection state: %s", e)
             return False
