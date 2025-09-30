@@ -5,7 +5,7 @@ from typing import List, Optional
 
 from pydantic import BaseModel, Field, confloat
 
-from .base import AgvPosition, BaseMessage, BoundingBoxReference, ControlPoint, LoadDimensions, Trajectory, Velocity
+from .base import AgvPosition, VDA5050Message, BoundingBoxReference, ControlPoint, LoadDimensions, Trajectory, Velocity
 
 
 class MapStatus(Enum):
@@ -228,7 +228,7 @@ class SafetyState(BaseModel):
     )
 
 
-class State(BaseMessage):
+class State(VDA5050Message):
     maps: Optional[List[Map]] = Field(
         None,
         description='Array of map-objects that are currently stored on the vehicle.',

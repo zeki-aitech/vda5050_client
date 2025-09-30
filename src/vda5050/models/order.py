@@ -5,7 +5,7 @@ from typing import List, Optional
 
 from pydantic import BaseModel, Field, confloat, conint
 
-from .base import Action, ActionParameter, BaseMessage, BlockingType, ControlPoint, Trajectory
+from .base import Action, ActionParameter, VDA5050Message, BlockingType, ControlPoint, Trajectory
 
 
 class NodePosition(BaseModel):
@@ -153,7 +153,7 @@ class Edge(BaseModel):
     )
 
 
-class OrderMessage(BaseMessage):
+class OrderMessage(VDA5050Message):
     orderId: str = Field(
         ...,
         description='Order Identification. This is to be used to identify multiple order messages that belong to the same order.',

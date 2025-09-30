@@ -4,8 +4,8 @@ from typing import List
 
 from pydantic import BaseModel, Field
 
-from .base import Action, BaseMessage
+from .base import Action, VDA5050Message
 
 
-class InstantActions(BaseMessage):
+class InstantActions(VDA5050Message):
     actions: List[Action]

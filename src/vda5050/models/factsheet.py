@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field, confloat, conint
 
-from .base import BaseMessage, BoundingBoxReference, BlockingType, LoadDimensions
+from .base import VDA5050Message, BoundingBoxReference, BlockingType, LoadDimensions
 
 
 class AgvKinematic(Enum):
@@ -474,7 +474,7 @@ class VehicleConfig(BaseModel):
     network: Optional[Network] = None
 
 
-class AgvFactsheet(BaseMessage):
+class AgvFactsheet(VDA5050Message):
     typeSpecification: TypeSpecification = Field(
         ...,
         description='These parameters generally specify the class and the capabilities of the AGV',

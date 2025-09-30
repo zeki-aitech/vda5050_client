@@ -7,9 +7,9 @@ from typing import Any, Dict, List, Optional, Union
 from pydantic import BaseModel, Field, confloat, conint
 
 
-class BaseMessage(BaseModel):
+class VDA5050Message(BaseModel):
     """
-    Base message class containing common header fields for all VDA5050 message types.
+    VDA5050 message class containing common header fields for all VDA5050 message types.
     
     This abstract base class provides the standard header structure that appears in all
     VDA5050 protocol messages. All message types inherit from this class to ensure

@@ -4,12 +4,12 @@ from typing import Optional
 
 from pydantic import BaseModel, Field, confloat
 
-from .base import AgvPosition, BaseMessage, Velocity
+from .base import AgvPosition, VDA5050Message, Velocity
 
 
 
 
-class Visualization(BaseMessage):
+class Visualization(VDA5050Message):
     agvPosition: Optional[AgvPosition] = Field(
         None, description='The AGVs position', title='agvPosition'
     )
