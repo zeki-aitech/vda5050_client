@@ -3,7 +3,8 @@
 import logging
 from typing import Callable, List
 from ..core.base_client import VDA5050BaseClient
-from ..models import Order, InstantActions
+from ..models.order import Order
+from ..models.instant_action import InstantActions
 from ..models.state import State
 from ..utils.exceptions import VDA5050Error
 
@@ -22,60 +23,59 @@ class MasterControlClient(VDA5050BaseClient):
         serial_number: str,
         **kwargs
     ):
-        # Initialize base client with identity
         super().__init__(broker_url, manufacturer, serial_number, **kwargs)
-        self._state_callbacks: List[Callable[[State], None]] = []
+        # Callbacks receive (serial: str, state: State)
+        self._state_callbacks: List[Callable[[str, State], None]] = []
         self._connection_callbacks: List[Callable[[str, str], None]] = []
 
     async def _setup_subscriptions(self):
-        # Subscribe to all AGV state topics with wildcards
         topic_state = self.topic_manager.get_subscription_topic(
             "state", all_manufacturers=True, all_serials=True
         )
         await self.mqtt.subscribe(topic_state, self._handle_state)
 
-        # Subscribe to all AGV connection topics
         topic_conn = self.topic_manager.get_subscription_topic(
             "connection", all_manufacturers=True, all_serials=True
         )
         await self.mqtt.subscribe(topic_conn, self._handle_connection)
 
     async def _on_vda5050_connect(self):
-        # Master has no startup message; could request factsheets here
         logger.debug("MasterControlClient connected to VDA5050")
 
     async def _handle_state(self, topic: str, payload: str):
-        # Parse JSON into Pydantic State model
+        info = self.topic_manager.parse_topic(topic)
+        if not info:
+            logger.error("Invalid state topic: %s", topic)
+            return
         try:
             state = State.from_mqtt_payload(payload)
         except Exception as e:
             logger.error("Failed to parse State payload: %s", e)
             return
-        # Invoke all registered callbacks
+        serial = info["serialNumber"]
         for cb in self._state_callbacks:
             try:
-                cb(state)
+                cb(serial, state)
             except Exception as e:
                 logger.error("Error in state callback: %s", e)
 
     async def _handle_connection(self, topic: str, payload: str):
-        # Extract manufacturer/serial from topic
         info = self.topic_manager.parse_topic(topic)
         if not info:
             logger.error("Invalid connection topic: %s", topic)
             return
-        new_state = payload  # expecting a simple string payload
-        # Trigger callbacks with (serial, new_state)
+        new_state = payload
+        serial = info["serialNumber"]
         for cb in self._connection_callbacks:
             try:
-                cb(info["serialNumber"], new_state)
+                cb(serial, new_state)
             except Exception as e:
                 logger.error("Error in connection callback: %s", e)
 
-    def on_state_update(self, callback: Callable[[State], None]):
+    def on_state_update(self, callback: Callable[[str, State], None]):
         """
         Register a callback for AGV state updates.
-        Callback receives a State object.
+        Callback receives (serial_number, State).
         """
         self._state_callbacks.append(callback)
 
@@ -92,9 +92,6 @@ class MasterControlClient(VDA5050BaseClient):
         target_serial: str,
         order: Order
     ) -> bool:
-        """
-        Send an Order message to a specific AGV (by manufacturer and serial).
-        """
         try:
             return await self._publish_message(
                 message_type="order",
@@ -112,9 +109,6 @@ class MasterControlClient(VDA5050BaseClient):
         target_serial: str,
         action: InstantActions
     ) -> bool:
-        """
-        Send an InstantAction message to a specific AGV (by manufacturer and serial).
-        """
         try:
             return await self._publish_message(
                 message_type="instantActions",
