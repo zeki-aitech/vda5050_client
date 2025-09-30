@@ -131,49 +131,38 @@ class VDA5050BaseClient(ABC):
         pass
     
     async def _publish_message(
-        self, 
-        message_type: str, 
+        self,
+        message_type: str,
         message: VDA5050Message,
+        target_manufacturer: Optional[str] = None,
         target_serial: Optional[str] = None
     ) -> bool:
         """
-        Publish VDA5050 message to appropriate topic.
-        
-        Args:
-            message_type: VDA5050 message type (order, state, etc.)
-            message: VDA5050 message object
-            target_serial: Target AGV serial number (for master->AGV messages)
+        Publish a VDA5050 message to the appropriate MQTT topic.
+        If target_manufacturer and target_serial are provided, builds a
+        Master→AGV topic; otherwise publishes from this client.
         """
-        # Ensure we're connected before publishing
         if not self._connected:
             raise VDA5050Error("Not connected to VDA5050 system")
-            
+
         try:
-            # Build correct topic for message type and target
-            if target_serial:
-                # Message to specific AGV
-                topic = self.topic_manager.build_topic_for_target(
-                    message_type, target_serial
+            if target_manufacturer and target_serial:
+                topic = self.topic_manager.get_target_topic(
+                    message_type, target_manufacturer, target_serial
                 )
             else:
-                # Message from this client
-                topic = self.topic_manager.build_topic(message_type)
-            
-            # Serialize message to JSON
+                topic = self.topic_manager.get_publish_topic(message_type)
+
             payload = message.to_mqtt_payload()
-            
-            # Publish via MQTT
             success = await self.mqtt.publish(topic, payload)
-            
-            if success:
-                logger.debug(f"Published {message_type} message to {topic}")
-                return True
-            else:
+            if not success:
                 raise VDA5050Error(f"Failed to publish {message_type} message")
-                
+            logger.debug(f"Published {message_type} to {topic}")
+            return True
+
         except Exception as e:
-            logger.error(f"Error publishing {message_type} message: {e}")
-            raise VDA5050Error(f"Publishing failed: {e}")
+            logger.error(f"Error publishing {message_type}: {e}")
+            raise VDA5050Error(str(e))
     
     def register_handler(self, message_type: str, handler: Callable):
         """

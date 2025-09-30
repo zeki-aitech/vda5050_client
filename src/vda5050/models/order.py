@@ -153,7 +153,7 @@ class Edge(BaseModel):
     )
 
 
-class OrderMessage(VDA5050Message):
+class Order(VDA5050Message):
     orderId: str = Field(
         ...,
         description='Order Identification. This is to be used to identify multiple order messages that belong to the same order.',

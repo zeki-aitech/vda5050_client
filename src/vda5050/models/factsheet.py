@@ -474,7 +474,7 @@ class VehicleConfig(BaseModel):
     network: Optional[Network] = None
 
 
-class AgvFactsheet(VDA5050Message):
+class Factsheet(VDA5050Message):
     typeSpecification: TypeSpecification = Field(
         ...,
         description='These parameters generally specify the class and the capabilities of the AGV',

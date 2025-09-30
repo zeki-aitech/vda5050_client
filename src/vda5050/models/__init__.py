@@ -1,16 +1,17 @@
-# Type aliases for consistency with main package imports
-from .connection import Connection as ConnectionMessage
-from .factsheet import AgvFactsheet as FactsheetMessage
-from .instantActions import InstantActions as InstantActionsMessage
-from .state import State as StateMessage
-from .visualization import Visualization as VisualizationMessage
-from .order import OrderMessage
+# src/vda5050/models/__init__.py
+
+from .connection import Connection
+from .factsheet import Factsheet
+from .instantActions import InstantActions
+from .state import State
+from .visualization import Visualization
+from .order import Order
 
 __all__ = [
-    "ConnectionMessage", 
-    "FactsheetMessage", 
-    "InstantActionsMessage", 
-    "StateMessage", 
-    "OrderMessage", 
-    "VisualizationMessage"
+    "Connection", 
+    "Factsheet", 
+    "InstantActions", 
+    "State", 
+    "Order", 
+    "Visualization"
 ]
