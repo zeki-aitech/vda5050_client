@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vda5050-client"
+version = "0.1.0"
+description = "Python client library for VDA5050 AGV communication protocol"
+authors = [{name = "Nguyen Ha Trung (Zekki)", email = "trungnh-aitech@gmail.com"}]
+dependencies = [
+    "paho-mqtt>=2.0.0,<3.0.0",
+    "pydantic>=2.0.0,<3.0.0",
+    "jsonschema>=4.0.0,<5.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-mock>=3.10.0",
+    "black>=23.0.0",
+    "mypy>=1.0.0",
+    "ruff>=0.1.0",
+]
