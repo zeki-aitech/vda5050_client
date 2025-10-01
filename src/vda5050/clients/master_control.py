@@ -6,6 +6,8 @@ from ..core.base_client import VDA5050BaseClient
 from ..models.order import Order
 from ..models.instant_action import InstantActions
 from ..models.state import State
+from ..models.factsheet import Factsheet
+from ..models.connection import Connection
 from ..utils.exceptions import VDA5050Error
 
 logger = logging.getLogger(__name__)
@@ -27,17 +29,17 @@ class MasterControlClient(VDA5050BaseClient):
         # Callbacks receive (serial: str, state: State)
         self._state_callbacks: List[Callable[[str, State], None]] = []
         self._connection_callbacks: List[Callable[[str, str], None]] = []
+        self._factsheet_callbacks: List[Callable[[str, Factsheet], None]] = []
+        
+        # Register handlers using base class API to ensure validation
+        # Use wildcards to listen to all AGVs
+        self.register_handler("state", self._handle_state, all_manufacturers=True, all_serials=True)
+        self.register_handler("connection", self._handle_connection, all_manufacturers=True, all_serials=True)
+        self.register_handler("factsheet", self._handle_factsheet, all_manufacturers=True, all_serials=True)
 
     async def _setup_subscriptions(self):
-        topic_state = self.topic_manager.get_subscription_topic(
-            "state", all_manufacturers=True, all_serials=True
-        )
-        await self.mqtt.subscribe(topic_state, self._handle_state)
-
-        topic_conn = self.topic_manager.get_subscription_topic(
-            "connection", all_manufacturers=True, all_serials=True
-        )
-        await self.mqtt.subscribe(topic_conn, self._handle_connection)
+        # Subscriptions are handled by register_handler calls in __init__
+        pass
 
     async def _on_vda5050_connect(self):
         logger.debug("MasterControlClient connected to VDA5050")
@@ -64,13 +66,35 @@ class MasterControlClient(VDA5050BaseClient):
         if not info:
             logger.error("Invalid connection topic: %s", topic)
             return
-        new_state = payload
+        try:
+            connection = Connection.from_mqtt_payload(payload)
+        except Exception as e:
+            logger.error("Failed to parse Connection payload: %s", e)
+            return
         serial = info["serialNumber"]
+        connection_state = connection.connectionState.value
         for cb in self._connection_callbacks:
             try:
-                cb(serial, new_state)
+                cb(serial, connection_state)
             except Exception as e:
                 logger.error("Error in connection callback: %s", e)
+
+    async def _handle_factsheet(self, topic: str, payload: str):
+        info = self.topic_manager.parse_topic(topic)
+        if not info:
+            logger.error("Invalid factsheet topic: %s", topic)
+            return
+        try:
+            factsheet = Factsheet.from_mqtt_payload(payload)
+        except Exception as e:
+            logger.error("Failed to parse Factsheet payload: %s", e)
+            return
+        serial = info["serialNumber"]
+        for cb in self._factsheet_callbacks:
+            try:
+                cb(serial, factsheet)
+            except Exception as e:
+                logger.error("Error in factsheet callback: %s", e)
 
     def on_state_update(self, callback: Callable[[str, State], None]):
         """
@@ -85,6 +109,13 @@ class MasterControlClient(VDA5050BaseClient):
         Callback receives (serial_number, new_state).
         """
         self._connection_callbacks.append(callback)
+
+    def on_factsheet(self, callback: Callable[[str, Factsheet], None]):
+        """
+        Register a callback for AGV factsheet updates.
+        Callback receives (serial_number, Factsheet).
+        """
+        self._factsheet_callbacks.append(callback)
 
     async def send_order(
         self,

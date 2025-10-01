@@ -6,6 +6,7 @@ from ..core.base_client import VDA5050BaseClient
 from ..models import Order, InstantActions
 from ..models.factsheet import Factsheet
 from ..models.state import State
+from ..models.connection import Connection, ConnectionState
 from ..utils.exceptions import VDA5050Error
 
 logger = logging.getLogger(__name__)
@@ -28,23 +29,28 @@ class AGVClient(VDA5050BaseClient):
         # Lists of user-registered callbacks
         self._order_callbacks: List[Callable[[Order], None]] = []
         self._instant_callbacks: List[Callable[[InstantActions], None]] = []
+        
+        # Register handlers using base class API to ensure validation
+        # Subscribe to this AGV's specific order and instantActions topics
+        self.register_handler("order", self._handle_order)
+        self.register_handler("instantActions", self._handle_instant_action)
 
     async def _setup_subscriptions(self):
-        # Subscribe only to this AGV's order topic
-        topic_order = self.topic_manager.get_subscription_topic("order")
-        await self.mqtt.subscribe(topic_order, self._handle_order)
-        # Subscribe to this AGV's instantActions topic
-        topic_inst = self.topic_manager.get_subscription_topic("instantActions")
-        await self.mqtt.subscribe(topic_inst, self._handle_instant_action)
+        # Subscriptions are now handled by register_handler calls in __init__
+        # This method can be used for any non-subscription setup logic if needed
+        pass
 
     async def _on_vda5050_connect(self):
-        # Upon connect, immediately publish factsheet
-        logger.debug("AGVClient connected; sending factsheet")
-        # Application should have registered factsheet content beforehand
+        # Upon connect, publish connection state and factsheet
+        logger.debug("AGVClient connected; sending connection state and factsheet")
         try:
-            await self.send_factsheet(self._factsheet)
+            # Publish ONLINE connection state
+            await self.update_connection(ConnectionState.ONLINE)
+            # Publish factsheet if available
+            if hasattr(self, '_factsheet'):
+                await self.send_factsheet(self._factsheet)
         except Exception as e:
-            logger.error("Failed to send factsheet on connect: %s", e)
+            logger.error("Failed to send connection state or factsheet on connect: %s", e)
 
     async def _handle_order(self, topic: str, payload: str):
         # Parse JSON into Order model
@@ -114,7 +120,7 @@ class AGVClient(VDA5050BaseClient):
             logger.error("Failed to send state: %s", e)
             return False
 
-    async def update_connection(self, connection_state: str) -> bool:
+    async def update_connection(self, connection_state: ConnectionState) -> bool:
         """
         Publish this AGV's connection status.
         """
@@ -122,13 +128,31 @@ class AGVClient(VDA5050BaseClient):
             raise VDA5050Error("Not connected to VDA5050 system")
             
         try:
-            topic = self.topic_manager.get_publish_topic("connection")
-            # For connection messages, we can publish the raw string
-            success = await self.mqtt.publish(topic, connection_state)
-            if not success:
-                raise VDA5050Error("Failed to publish connection message")
-            logger.debug(f"Published connection state to {topic}")
-            return True
+            # Create proper Connection message
+            from datetime import datetime, timezone
+            connection_msg = Connection(
+                headerId=0,  # Connection messages typically use 0
+                timestamp=datetime.now(timezone.utc).isoformat(),
+                version=self.version,
+                manufacturer=self.manufacturer,
+                serialNumber=self.serial_number,
+                connectionState=connection_state
+            )
+            
+            # Use the standard message publishing mechanism
+            return await self._publish_message(
+                message_type="connection",
+                message=connection_msg
+            )
         except Exception as e:
             logger.error("Failed to update connection state: %s", e)
             return False
+
+    async def _on_vda5050_disconnect(self):
+        """
+        Called before disconnection - publish OFFLINE state.
+        """
+        try:
+            await self.update_connection(ConnectionState.OFFLINE)
+        except Exception as e:
+            logger.error("Failed to publish OFFLINE state on disconnect: %s", e)

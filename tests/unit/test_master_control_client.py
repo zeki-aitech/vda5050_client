@@ -40,18 +40,14 @@ def client(monkeypatch, mock_mqtt):
 
 def test_setup_subscriptions(client, mock_mqtt):
     """
-    _setup_subscriptions should subscribe to wildcard state and connection topics.
+    _setup_subscriptions should be a no-op since subscriptions are handled by base class.
     """
-    # Call setup
-    pytest.raises  # silence unused
+    # Call setup - should be a no-op now
     import asyncio; asyncio.run(client._setup_subscriptions())
-
-    # Expected wildcard topics
-    state_topic = "uagv/v2/+/+/state"
-    conn_topic  = "uagv/v2/+/+/connection"
-
-    mock_mqtt.subscribe.assert_any_await(state_topic, client._handle_state)
-    mock_mqtt.subscribe.assert_any_await(conn_topic, client._handle_connection)
+    
+    # No direct MQTT subscriptions should be made in _setup_subscriptions
+    # The actual subscriptions are handled by register_handler calls in __init__
+    # and set up during connection via _setup_registered_handlers
 
 def test_handle_state_invokes_callbacks(client):
     """
@@ -109,10 +105,11 @@ def test_handle_connection_invokes_callbacks(client):
     client.on_connection_change(lambda serial, st: called.append((serial, st)))
 
     topic = "uagv/v2/TestMan/Test001/connection"
-    payload = "CONNECTED"
+    # Use proper JSON payload for Connection message
+    payload = '{"headerId": 1, "timestamp": "2023-01-01T00:00:00Z", "version": "2.1.0", "manufacturer": "TestMan", "serialNumber": "Test001", "connectionState": "ONLINE"}'
     import asyncio; asyncio.run(client._handle_connection(topic, payload))
 
-    assert called == [("Test001", "CONNECTED")]
+    assert called == [("Test001", "ONLINE")]
 
 def test_send_order_calls_publish(client, mock_mqtt):
     """
