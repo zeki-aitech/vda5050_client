@@ -8,6 +8,7 @@ from .mqtt_abstraction import MQTTAbstraction
 from .topic_manager import TopicManager
 from ..models.base import VDA5050Message
 from ..utils.exceptions import VDA5050Error
+from ..validation.validator import MessageValidator
 
 logger = logging.getLogger(__name__)
 
@@ -27,12 +28,16 @@ class VDA5050BaseClient(ABC):
         version: str = "2.1.0",
         username: Optional[str] = None,
         password: Optional[str] = None,
+        validate_messages: bool = True
     ):
         # Store VDA5050 identity for topic construction
         self.manufacturer = manufacturer
         self.serial_number = serial_number
         self.interface_name = interface_name
         self.version = version
+        
+        # Initialize validation
+        self.validator = MessageValidator() if validate_messages else None
         
         # Initialize core components
         self.mqtt = MQTTAbstraction(
@@ -146,14 +151,20 @@ class VDA5050BaseClient(ABC):
             raise VDA5050Error("Not connected to VDA5050 system")
 
         try:
+            # Generate payload first (properly serializes datetime to ISO8601 strings)
+            payload = message.to_mqtt_payload()
+            
+            # Validate message before publishing
+            if self.validator:
+                self.validator.validate_message(message_type, payload)
+                logger.debug(f"Message {message_type} passed validation")
+
             if target_manufacturer and target_serial:
                 topic = self.topic_manager.get_target_topic(
                     message_type, target_manufacturer, target_serial
                 )
             else:
                 topic = self.topic_manager.get_publish_topic(message_type)
-
-            payload = message.to_mqtt_payload()
             success = await self.mqtt.publish(topic, payload)
             if not success:
                 raise VDA5050Error(f"Failed to publish {message_type} message")
@@ -178,6 +189,9 @@ class VDA5050BaseClient(ABC):
         # Create wrapper that handles JSON parsing and error catching
         async def message_wrapper(topic: str, payload: str):
             try:
+                if self.validator:
+                    self.validator.validate_message(message_type, payload)
+                    logger.debug(f"Incoming {message_type} message passed validation")
                 logger.debug(f"Received {message_type} message on {topic}")
                 await handler(topic, payload)
             except Exception as e:

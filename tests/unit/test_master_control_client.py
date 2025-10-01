@@ -58,10 +58,9 @@ def test_handle_state_invokes_callbacks(client):
     _handle_state parses topic, builds State, and calls registered callbacks.
     """
     # Prepare a fake State JSON with required fields
-    from datetime import datetime
     payload = State(
         headerId=1,
-        timestamp=datetime.now(),
+        timestamp="2025-10-01T12:00:00Z",
         version="2.1.0",
         manufacturer="TestMan",
         serialNumber="Test001",
@@ -119,11 +118,10 @@ def test_send_order_calls_publish(client, mock_mqtt):
     """
     send_order should call _publish_message via MQTT.publish and return True.
     """
-    from datetime import datetime
     order = Order(
         orderId="o1",
         headerId=1,
-        timestamp=datetime.now(),
+        timestamp="2025-10-01T12:00:00Z",
         version="2.1.0",
         manufacturer="TestMan",
         serialNumber="Test001",
@@ -148,10 +146,9 @@ def test_send_instant_action_calls_publish(client, mock_mqtt):
     """
     send_instant_action should call MQTT.publish and return True.
     """
-    from datetime import datetime
     action = InstantActions(
         headerId=1,
-        timestamp=datetime.now(),
+        timestamp="2025-10-01T12:00:00Z",
         version="2.1.0",
         manufacturer="TestMan",
         serialNumber="Test001",
