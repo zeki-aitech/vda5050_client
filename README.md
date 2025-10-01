@@ -4,6 +4,46 @@ A comprehensive Python client library for implementing VDA5050 AGV (Automated Gu
 
 ## Project Overview
 
+### Project Structure
+
+```
+vda5050_client/
+├── src/vda5050/                    # Main library source code
+│   ├── clients/                    # Client implementations
+│   │   ├── agv.py                 # AGV client for receiving orders/actions
+│   │   └── master_control.py      # Master control client for sending commands
+│   ├── core/                      # Core functionality
+│   │   ├── base_client.py         # Abstract base client class
+│   │   ├── mqtt_abstraction.py   # MQTT transport layer
+│   │   └── topic_manager.py      # VDA5050 topic management
+│   ├── models/                    # Pydantic data models
+│   │   ├── base.py               # Base VDA5050 message class
+│   │   ├── connection.py         # Connection state messages
+│   │   ├── factsheet.py          # AGV capability messages
+│   │   ├── instant_action.py     # Instant action messages
+│   │   ├── order.py              # Order/navigation messages
+│   │   ├── state.py              # AGV state messages
+│   │   └── visualization.py      # Visualization messages
+│   ├── utils/                     # Utility modules
+│   │   └── exceptions.py         # Custom exception classes
+│   └── validation/               # Message validation
+│       ├── schemas/              # JSON schema files
+│       └── validator.py          # Schema validation logic
+├── examples/                      # Demo scripts
+│   ├── complete_vda5050_demo.py  # Single-script complete demo
+│   ├── agv_simulator.py         # AGV simulation example
+│   └── master_control.py       # Master control example
+├── tests/                         # Test suite
+│   ├── integration/              # Integration tests
+│   │   └── test_integration_smoke.py
+│   └── unit/                     # Unit tests
+│       ├── models/              # Model-specific tests
+│       ├── test_agv_client.py   # AGV client tests
+│       └── test_master_control_client.py
+├── pyproject.toml               # Project configuration
+└── README.md                    # This documentation
+```
+
 ### What the library is and the problems it solves
 
 The VDA5050 Python Client Library enables seamless communication between AGVs and master control systems using the VDA5050 standard. It solves the complexity of:
