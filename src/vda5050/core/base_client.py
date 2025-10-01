@@ -82,10 +82,11 @@ class VDA5050BaseClient(ABC):
             # Setup registered handlers
             await self._setup_registered_handlers()
             
+            # Mark as connected before calling connect hook
+            self._connected = True
+            
             # Perform client-specific initialization
             await self._on_vda5050_connect()
-            
-            self._connected = True
             logger.info("VDA5050 client connected successfully")
             return True
             
@@ -143,7 +144,8 @@ class VDA5050BaseClient(ABC):
         message_type: str,
         message: VDA5050Message,
         target_manufacturer: Optional[str] = None,
-        target_serial: Optional[str] = None
+        target_serial: Optional[str] = None,
+        retain: bool = False
     ) -> bool:
         """
         Publish a VDA5050 message to the appropriate MQTT topic.
@@ -168,7 +170,7 @@ class VDA5050BaseClient(ABC):
                 )
             else:
                 topic = self.topic_manager.get_publish_topic(message_type)
-            success = await self.mqtt.publish(topic, payload)
+            success = await self.mqtt.publish(topic, payload, retain=retain)
             if not success:
                 raise VDA5050Error(f"Failed to publish {message_type} message")
             logger.debug(f"Published {message_type} to {topic}")

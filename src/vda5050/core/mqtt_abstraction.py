@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import re
+import uuid
 from enum import Enum
 from typing import Callable, Dict
 import paho.mqtt.client as mqtt
@@ -33,16 +34,18 @@ class MQTTAbstraction:
         self.broker_url = broker_url
         self.broker_port = broker_port
         # Generate unique client ID if not provided
-        self.client_id = client_id or f"vda5050-{asyncio.get_event_loop().time()}"
+        self.client_id = client_id or f"vda5050-{uuid.uuid4()}"
         self._state = ConnectionState.DISCONNECTED
         self._connection_event = asyncio.Event()
         self._message_queue: asyncio.Queue = asyncio.Queue()
         self._handlers: Dict[str, Callable] = {}
         self._wildcard_handlers: Dict[str, Callable] = {}
         self._running = False
+        # Capture event loop for thread-safe operations
+        self._loop = asyncio.get_event_loop()
 
-        # Configure underlying paho-mqtt client
-        self._client = mqtt.Client(client_id=self.client_id)
+        # Configure underlying paho-mqtt client with latest callback API
+        self._client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=self.client_id)
         if username and password:
             self._client.username_pw_set(username, password)
         self._client.on_connect    = self._on_connect
@@ -89,7 +92,7 @@ class MQTTAbstraction:
             self._client.disconnect()
         self._state = ConnectionState.DISCONNECTED
 
-    async def publish(self, topic: str, payload: str, qos: int = 1) -> bool:
+    async def publish(self, topic: str, payload: str, qos: int = 1, retain: bool = False) -> bool:
         """
         Publish a message to the given MQTT topic.
         Returns True if published successfully.
@@ -97,7 +100,7 @@ class MQTTAbstraction:
         if self._state != ConnectionState.CONNECTED:
             raise RuntimeError("Not connected to MQTT broker")
         loop = asyncio.get_event_loop()
-        info = self._client.publish(topic, payload, qos=qos)
+        info = self._client.publish(topic, payload, qos=qos, retain=retain)
         try:
             # Wait for message acknowledgment
             await loop.run_in_executor(None, info.wait_for_publish, 10)
@@ -125,8 +128,8 @@ class MQTTAbstraction:
         """
         if rc == mqtt.MQTT_ERR_SUCCESS:
             self._state = ConnectionState.CONNECTED
-            # Wake up connect()
-            asyncio.create_task(self._connection_event.set())
+            # Wake up connect() using thread-safe method
+            self._loop.call_soon_threadsafe(self._connection_event.set)
         else:
             logger.error("MQTT on_connect error code %s", rc)
 
@@ -147,7 +150,10 @@ class MQTTAbstraction:
         Queues messages for async processing.
         """
         payload = msg.payload.decode('utf-8')
-        asyncio.create_task(self._message_queue.put((msg.topic, payload)))
+        # Use thread-safe method to queue message
+        self._loop.call_soon_threadsafe(
+            lambda: asyncio.create_task(self._message_queue.put((msg.topic, payload)))
+        )
 
     async def _message_processor(self):
         """

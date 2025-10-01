@@ -25,7 +25,7 @@ class MasterControlClient(VDA5050BaseClient):
         serial_number: str,
         **kwargs
     ):
-        super().__init__(broker_url, manufacturer, serial_number, **kwargs)
+        super().__init__(manufacturer, serial_number, broker_url, **kwargs)
         # Callbacks receive (serial: str, state: State)
         self._state_callbacks: List[Callable[[str, State], None]] = []
         self._connection_callbacks: List[Callable[[str, str], None]] = []

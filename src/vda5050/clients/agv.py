@@ -25,7 +25,7 @@ class AGVClient(VDA5050BaseClient):
         **kwargs
     ):
         # Initialize base client with identity
-        super().__init__(broker_url, manufacturer, serial_number, **kwargs)
+        super().__init__(manufacturer, serial_number, broker_url, **kwargs)
         # Lists of user-registered callbacks
         self._order_callbacks: List[Callable[[Order], None]] = []
         self._instant_callbacks: List[Callable[[InstantActions], None]] = []
@@ -101,7 +101,8 @@ class AGVClient(VDA5050BaseClient):
         try:
             return await self._publish_message(
                 message_type="factsheet",
-                message=factsheet
+                message=factsheet,
+                retain=True
             )
         except VDA5050Error as e:
             logger.error("Failed to send factsheet: %s", e)
@@ -139,10 +140,11 @@ class AGVClient(VDA5050BaseClient):
                 connectionState=connection_state
             )
             
-            # Use the standard message publishing mechanism
+            # Use the standard message publishing mechanism with retain=True for connection state
             return await self._publish_message(
                 message_type="connection",
-                message=connection_msg
+                message=connection_msg,
+                retain=True
             )
         except Exception as e:
             logger.error("Failed to update connection state: %s", e)
