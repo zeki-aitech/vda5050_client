@@ -165,7 +165,7 @@ def test_factsheet_sent_on_connect(client, mock_mqtt, factsheet):
     import asyncio; asyncio.run(client._on_vda5050_connect())
 
     topic = "uagv/v2/TestMan/Test001/factsheet"
-    mock_mqtt.publish.assert_awaited_with(topic, factsheet.to_mqtt_payload())
+    mock_mqtt.publish.assert_awaited_with(topic, factsheet.to_mqtt_payload(), retain=True)
 
 def test_handle_order_invokes_callbacks(client, order):
     """_handle_order should parse payload and invoke registered callbacks."""
@@ -198,14 +198,14 @@ def test_send_methods_publish(client, mock_mqtt, factsheet, state):
     res = asyncio.run(client.send_factsheet(factsheet))
     assert res is True
     mock_mqtt.publish.assert_awaited_with(
-        "uagv/v2/TestMan/Test001/factsheet", factsheet.to_mqtt_payload()
+        "uagv/v2/TestMan/Test001/factsheet", factsheet.to_mqtt_payload(), retain=True
     )
 
     # State
     res = asyncio.run(client.send_state(state))
     assert res is True
     mock_mqtt.publish.assert_awaited_with(
-        "uagv/v2/TestMan/Test001/state", state.to_mqtt_payload()
+        "uagv/v2/TestMan/Test001/state", state.to_mqtt_payload(), retain=False
     )
 
     # Connection

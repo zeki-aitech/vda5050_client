@@ -16,7 +16,7 @@ async def test_connect_success(monkeypatch):
     fake_client.loop_stop = Mock()
     
     # Patch mqtt.Client constructor
-    monkeypatch.setattr("paho.mqtt.client.Client", lambda client_id=None: fake_client)
+    monkeypatch.setattr("paho.mqtt.client.Client", lambda api_version=None, client_id=None: fake_client)
     
     # Build abstraction
     mqtt_abstraction = MQTTAbstraction("host", 1883, client_id="test")
@@ -52,7 +52,7 @@ async def test_connect_success(monkeypatch):
 async def test_connect_failure(monkeypatch):
     fake_client = Mock()
     fake_client.connect.side_effect = RuntimeError("fail")
-    monkeypatch.setattr("paho.mqtt.client.Client", lambda client_id=None: fake_client)
+    monkeypatch.setattr("paho.mqtt.client.Client", lambda api_version=None, client_id=None: fake_client)
 
     mqtt = MQTTAbstraction("host", 1883)
     result = await mqtt.connect(timeout=0.1)
@@ -68,13 +68,13 @@ async def test_publish_connected(monkeypatch):
     fake_info = Mock()
     fake_info.wait_for_publish = Mock()
     fake_client = Mock(publish=Mock(return_value=fake_info))
-    monkeypatch.setattr("paho.mqtt.client.Client", lambda client_id=None: fake_client)
+    monkeypatch.setattr("paho.mqtt.client.Client", lambda api_version=None, client_id=None: fake_client)
 
     mqtt = MQTTAbstraction("host", 1883)
     mqtt._state = ConnectionState.CONNECTED
     result = await mqtt.publish("topic", "payload")
     assert result is True
-    fake_client.publish.assert_called_with("topic", "payload", qos=1)
+    fake_client.publish.assert_called_with("topic", "payload", qos=1, retain=False)
     fake_info.wait_for_publish.assert_called()
 
 # 4. Test publish when not connected
@@ -83,7 +83,7 @@ async def test_publish_connected(monkeypatch):
 @pytest.mark.asyncio
 async def test_publish_not_connected(monkeypatch):
     fake_client = Mock()
-    monkeypatch.setattr("paho.mqtt.client.Client", lambda client_id=None: fake_client)
+    monkeypatch.setattr("paho.mqtt.client.Client", lambda api_version=None, client_id=None: fake_client)
 
     mqtt_abstraction = MQTTAbstraction("host", 1883)
     with pytest.raises(RuntimeError):
@@ -98,7 +98,7 @@ async def test_disconnect(monkeypatch):
     fake_client = Mock()
     fake_client.loop_stop = Mock()
     fake_client.disconnect = Mock()
-    monkeypatch.setattr("paho.mqtt.client.Client", lambda client_id=None: fake_client)
+    monkeypatch.setattr("paho.mqtt.client.Client", lambda api_version=None, client_id=None: fake_client)
 
     mqtt_abstraction = MQTTAbstraction("host", 1883)
     mqtt_abstraction._state = ConnectionState.CONNECTED
@@ -119,7 +119,7 @@ async def test_subscribe_registration(monkeypatch):
     import paho.mqtt.client as mqtt_client
     fake_client = Mock()
     fake_client.subscribe = Mock(return_value=(mqtt_client.MQTT_ERR_SUCCESS, 1))
-    monkeypatch.setattr("paho.mqtt.client.Client", lambda client_id=None: fake_client)
+    monkeypatch.setattr("paho.mqtt.client.Client", lambda api_version=None, client_id=None: fake_client)
 
     mqtt_abstraction = MQTTAbstraction("host", 1883)
     def handler_a(t, p): pass
@@ -140,7 +140,7 @@ async def test_subscribe_registration(monkeypatch):
 async def test_message_routing(monkeypatch):
     fake_client = Mock()
     fake_client.subscribe = Mock(return_value=(mqtt.MQTT_ERR_SUCCESS, 1))
-    monkeypatch.setattr("paho.mqtt.client.Client", lambda client_id=None: fake_client)
+    monkeypatch.setattr("paho.mqtt.client.Client", lambda api_version=None, client_id=None: fake_client)
 
     mqtt_abstraction = MQTTAbstraction("host", 1883)
     mqtt_abstraction._state = ConnectionState.CONNECTED
@@ -181,7 +181,7 @@ async def test_reconnect(monkeypatch):
     fake_client = Mock()
     fake_client.loop_start = Mock()
     fake_client.loop_stop = Mock()
-    monkeypatch.setattr("paho.mqtt.client.Client", lambda client_id=None: fake_client)
+    monkeypatch.setattr("paho.mqtt.client.Client", lambda api_version=None, client_id=None: fake_client)
 
     mqtt_abstraction = MQTTAbstraction("host", 1883)
     # Patch connect to set state and return True
