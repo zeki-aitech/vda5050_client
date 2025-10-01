@@ -1,0 +1,15 @@
+Metadata-Version: 2.4
+Name: vda5050-client
+Version: 0.1.0
+Summary: Python client library for VDA5050 AGV communication protocol
+Author-email: "Nguyen Ha Trung (Zekki)" <trungnh-aitech@gmail.com>
+Requires-Dist: paho-mqtt<3.0.0,>=2.0.0
+Requires-Dist: pydantic<3.0.0,>=2.0.0
+Requires-Dist: jsonschema<5.0.0,>=4.0.0
+Provides-Extra: dev
+Requires-Dist: pytest>=7.0.0; extra == "dev"
+Requires-Dist: pytest-asyncio>=0.21.0; extra == "dev"
+Requires-Dist: pytest-mock>=3.10.0; extra == "dev"
+Requires-Dist: black>=23.0.0; extra == "dev"
+Requires-Dist: mypy>=1.0.0; extra == "dev"
+Requires-Dist: ruff>=0.1.0; extra == "dev"
