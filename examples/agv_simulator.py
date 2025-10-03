@@ -25,6 +25,7 @@ Usage:
     python agv_simulator.py --manufacturer MyCompany --broker-port 8883 --state-interval 1.0
     python agv_simulator.py --position-x 10.0 --position-y 5.0 --map-id warehouse_map
     python agv_simulator.py --no-movement --position-x 5.0 --position-y 5.0
+    python agv_simulator.py --movement-speed 0.000005 --position-x 36.116731 --position-y 128.364716
 """
 
 import argparse
@@ -73,6 +74,7 @@ DEFAULT_POSITION_THETA = 0.0  # radians
 DEFAULT_MAP_ID = "default_map"
 DEFAULT_POSITION_INITIALIZED = True
 DEFAULT_ENABLE_MOVEMENT = True  # Whether to simulate position movement
+DEFAULT_MOVEMENT_SPEED = 0.00001  # Movement speed in degrees per update (for lat/lon)
 
 
 # ============================================================================
@@ -252,7 +254,8 @@ class AGVSimulator:
     def __init__(self, broker_url: str, broker_port: int, manufacturer: str, 
                  serial_number: str, version: str, state_interval: float,
                  position_x: float, position_y: float, position_theta: float, 
-                 map_id: str, position_initialized: bool, enable_movement: bool):
+                 map_id: str, position_initialized: bool, enable_movement: bool,
+                 movement_speed: float):
         self.client: Optional[AGVClient] = None
         self.shutdown_event = asyncio.Event()
         self.state_header_id = 2  # Start from 2 (1 was used for factsheet)
@@ -273,6 +276,7 @@ class AGVSimulator:
         self.map_id = map_id
         self.position_initialized = position_initialized
         self.enable_movement = enable_movement
+        self.movement_speed = movement_speed
         
     async def setup_and_connect(self):
         """Setup AGVClient and connect to the broker."""
@@ -337,11 +341,14 @@ class AGVSimulator:
             # Simulate position movement (simple circular motion for demo)
             if driving and self.enable_movement:
                 # Move in a small circle for demonstration
+                # Much slower movement suitable for lat/lon coordinates
                 import math
-                time_factor = self.state_header_id * 0.1  # Slow movement
-                self.position_x += 0.1 * math.cos(time_factor)
-                self.position_y += 0.1 * math.sin(time_factor)
-                self.position_theta += 0.05  # Slow rotation
+                time_factor = self.state_header_id * 0.01  # Very slow movement
+                # Move at configurable speed (realistic for AGV speed)
+                # 1 degree ≈ 111,000 meters, so 0.00001 degrees ≈ 1.1 meters
+                self.position_x += self.movement_speed * math.cos(time_factor)
+                self.position_y += self.movement_speed * math.sin(time_factor)
+                self.position_theta += 0.005  # Very slow rotation (0.005 radians ≈ 0.3 degrees)
             
             # Create current AGV position
             current_position = AgvPosition(
@@ -422,6 +429,7 @@ Examples:
   %(prog)s --manufacturer MyCompany --broker-port 8883 --state-interval 1.0
   %(prog)s --position-x 10.0 --position-y 5.0 --map-id warehouse_map
   %(prog)s --no-movement --position-x 5.0 --position-y 5.0
+  %(prog)s --movement-speed 0.000005 --position-x 36.116731 --position-y 128.364716
   %(prog)s --help
         """
     )
@@ -500,6 +508,12 @@ Examples:
         default=False,
         help="Disable position movement simulation (keep position static)"
     )
+    parser.add_argument(
+        "--movement-speed", 
+        type=float, 
+        default=DEFAULT_MOVEMENT_SPEED,
+        help=f"Movement speed in degrees per update for lat/lon coordinates (default: {DEFAULT_MOVEMENT_SPEED})"
+    )
     
     return parser.parse_args()
 
@@ -526,7 +540,8 @@ async def main():
         position_theta=args.position_theta,
         map_id=args.map_id,
         position_initialized=args.position_initialized,
-        enable_movement=not args.no_movement
+        enable_movement=not args.no_movement,
+        movement_speed=args.movement_speed
     )
     
     # Setup signal handlers for graceful shutdown
