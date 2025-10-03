@@ -141,8 +141,10 @@ class MQTTAbstraction:
         self._state = ConnectionState.DISCONNECTED
         self._connection_event.clear()
         if rc != 0:
-            # Unexpected disconnect: start reconnect loop
-            asyncio.create_task(self._reconnect())
+            # Unexpected disconnect: start reconnect loop using thread-safe method
+            self._loop.call_soon_threadsafe(
+                lambda: asyncio.create_task(self._reconnect())
+            )
 
     def _on_message(self, client, userdata, msg, properties=None):
         """
