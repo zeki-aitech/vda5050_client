@@ -18,9 +18,16 @@ Requirements:
 - Install: pip install vda5050-client
 
 Usage:
-    python agv_simulator.py
+    python agv_simulator.py [options]
+    
+    Examples:
+    python agv_simulator.py --broker-url 192.168.1.100 --agv-serial AGV-002
+    python agv_simulator.py --manufacturer MyCompany --broker-port 8883 --state-interval 1.0
+    python agv_simulator.py --position-x 10.0 --position-y 5.0 --map-id warehouse_map
+    python agv_simulator.py --no-movement --position-x 5.0 --position-y 5.0
 """
 
+import argparse
 import asyncio
 import logging
 import signal
@@ -38,6 +45,7 @@ from vda5050.models.factsheet import (
 from vda5050.models.state import (
     State, BatteryState, SafetyState, EStop, OperatingMode
 )
+from vda5050.models.base import AgvPosition
 from vda5050.models.order import Order
 from vda5050.models.instant_action import InstantActions
 
@@ -49,18 +57,22 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ============================================================================
-# BROKER CONFIGURATION
+# CONFIGURATION (Default values - can be overridden via command line)
 # ============================================================================
-BROKER_URL = "127.0.0.1"  # Change to your MQTT broker IP
-BROKER_PORT = 1883
+DEFAULT_BROKER_URL = "127.0.0.1"
+DEFAULT_BROKER_PORT = 1883
+DEFAULT_AGV_MANUFACTURER = "RobotCompany"
+DEFAULT_AGV_SERIAL = "AGV-001"
+DEFAULT_VDA5050_VERSION = "2.1.0"
+DEFAULT_STATE_UPDATE_INTERVAL = 2.0  # seconds
 
-# AGV Identity Configuration
-AGV_MANUFACTURER = "RobotCompany"
-AGV_SERIAL = "AGV-001"
-VDA5050_VERSION = "2.1.0"
-
-# State Update Configuration
-STATE_UPDATE_INTERVAL = 2.0  # seconds
+# AGV Position Configuration (Default values)
+DEFAULT_POSITION_X = 0.0  # meters
+DEFAULT_POSITION_Y = 0.0  # meters
+DEFAULT_POSITION_THETA = 0.0  # radians
+DEFAULT_MAP_ID = "default_map"
+DEFAULT_POSITION_INITIALIZED = True
+DEFAULT_ENABLE_MOVEMENT = True  # Whether to simulate position movement
 
 
 # ============================================================================
@@ -122,7 +134,7 @@ def on_instant_action(action: InstantActions):
 # HELPER FUNCTIONS
 # ============================================================================
 
-def create_factsheet() -> Factsheet:
+def create_factsheet(manufacturer: str, serial_number: str, version: str) -> Factsheet:
     """
     Create the AGV's factsheet with capabilities and specifications.
     
@@ -132,9 +144,9 @@ def create_factsheet() -> Factsheet:
     return Factsheet(
         headerId=1,
         timestamp=datetime.now(timezone.utc),
-        version=VDA5050_VERSION,
-        manufacturer=AGV_MANUFACTURER,
-        serialNumber=AGV_SERIAL,
+        version=version,
+        manufacturer=manufacturer,
+        serialNumber=serial_number,
         typeSpecification=TypeSpecification(
             seriesName="MowBot-3000",
             seriesDescription="Autonomous lawn mowing robot with differential drive",
@@ -192,7 +204,7 @@ def create_factsheet() -> Factsheet:
     )
 
 
-def create_state(header_id: int, battery_charge: float, driving: bool) -> State:
+def create_state(header_id: int, battery_charge: float, driving: bool, manufacturer: str, serial_number: str, version: str, agv_position: AgvPosition) -> State:
     """
     Create a state message representing the current AGV status.
     
@@ -202,9 +214,9 @@ def create_state(header_id: int, battery_charge: float, driving: bool) -> State:
     return State(
         headerId=header_id,
         timestamp=datetime.now(timezone.utc),
-        version=VDA5050_VERSION,
-        manufacturer=AGV_MANUFACTURER,
-        serialNumber=AGV_SERIAL,
+        version=version,
+        manufacturer=manufacturer,
+        serialNumber=serial_number,
         orderId="",  # Empty if no active order
         orderUpdateId=0,
         lastNodeId="",  # Last reached node ID
@@ -225,7 +237,8 @@ def create_state(header_id: int, battery_charge: float, driving: bool) -> State:
         safetyState=SafetyState(
             eStop=EStop.NONE,
             fieldViolation=False
-        )
+        ),
+        agvPosition=agv_position  # Current AGV position
     )
 
 
@@ -236,11 +249,30 @@ def create_state(header_id: int, battery_charge: float, driving: bool) -> State:
 class AGVSimulator:
     """Simulates an AGV running VDA5050 protocol."""
     
-    def __init__(self):
+    def __init__(self, broker_url: str, broker_port: int, manufacturer: str, 
+                 serial_number: str, version: str, state_interval: float,
+                 position_x: float, position_y: float, position_theta: float, 
+                 map_id: str, position_initialized: bool, enable_movement: bool):
         self.client: Optional[AGVClient] = None
         self.shutdown_event = asyncio.Event()
         self.state_header_id = 2  # Start from 2 (1 was used for factsheet)
         self.battery_charge = 95.0  # Initial battery level
+        
+        # Configuration parameters
+        self.broker_url = broker_url
+        self.broker_port = broker_port
+        self.manufacturer = manufacturer
+        self.serial_number = serial_number
+        self.version = version
+        self.state_interval = state_interval
+        
+        # Position configuration
+        self.position_x = position_x
+        self.position_y = position_y
+        self.position_theta = position_theta
+        self.map_id = map_id
+        self.position_initialized = position_initialized
+        self.enable_movement = enable_movement
         
     async def setup_and_connect(self):
         """Setup AGVClient and connect to the broker."""
@@ -250,17 +282,17 @@ class AGVSimulator:
         
         # Instantiate AGVClient with identity, version, and validation
         self.client = AGVClient(
-            broker_url=BROKER_URL,
-            manufacturer=AGV_MANUFACTURER,
-            serial_number=AGV_SERIAL,
-            broker_port=BROKER_PORT,
-            version=VDA5050_VERSION,
+            broker_url=self.broker_url,
+            manufacturer=self.manufacturer,
+            serial_number=self.serial_number,
+            broker_port=self.broker_port,
+            version=self.version,
             validate_messages=True  # Enable JSON schema validation
         )
         
-        logger.info(f"AGV Identity: {AGV_MANUFACTURER}/{AGV_SERIAL}")
-        logger.info(f"VDA5050 Version: {VDA5050_VERSION}")
-        logger.info(f"Broker: {BROKER_URL}:{BROKER_PORT}")
+        logger.info(f"AGV Identity: {self.manufacturer}/{self.serial_number}")
+        logger.info(f"VDA5050 Version: {self.version}")
+        logger.info(f"Broker: {self.broker_url}:{self.broker_port}")
         logger.info("")
         
         # Register callbacks
@@ -281,7 +313,7 @@ class AGVSimulator:
         # Explicitly publish factsheet (retained)
         logger.info("")
         logger.info("Publishing factsheet...")
-        factsheet = create_factsheet()
+        factsheet = create_factsheet(self.manufacturer, self.serial_number, self.version)
         await self.client.send_factsheet(factsheet)
         logger.info("✓ Factsheet published (retained)")
         logger.info("")
@@ -291,7 +323,7 @@ class AGVSimulator:
         logger.info("=" * 70)
         logger.info("STATE PUBLISHER - STARTED")
         logger.info("=" * 70)
-        logger.info(f"Publishing state every {STATE_UPDATE_INTERVAL} seconds")
+        logger.info(f"Publishing state every {self.state_interval} seconds")
         logger.info("Press Ctrl+C to stop")
         logger.info("")
         
@@ -302,17 +334,41 @@ class AGVSimulator:
             # Simulate driving status (alternates for demo purposes)
             driving = (self.state_header_id % 4) < 2
             
+            # Simulate position movement (simple circular motion for demo)
+            if driving and self.enable_movement:
+                # Move in a small circle for demonstration
+                import math
+                time_factor = self.state_header_id * 0.1  # Slow movement
+                self.position_x += 0.1 * math.cos(time_factor)
+                self.position_y += 0.1 * math.sin(time_factor)
+                self.position_theta += 0.05  # Slow rotation
+            
+            # Create current AGV position
+            current_position = AgvPosition(
+                x=self.position_x,
+                y=self.position_y,
+                theta=self.position_theta,
+                mapId=self.map_id,
+                positionInitialized=self.position_initialized,
+                localizationScore=0.95  # High localization confidence
+            )
+            
             # Create and publish state
             state = create_state(
                 header_id=self.state_header_id,
                 battery_charge=self.battery_charge,
-                driving=driving
+                driving=driving,
+                manufacturer=self.manufacturer,
+                serial_number=self.serial_number,
+                version=self.version,
+                agv_position=current_position
             )
             
             await self.client.send_state(state)
             logger.info(f"📊 State #{self.state_header_id}: "
                        f"battery={self.battery_charge:.1f}%, "
-                       f"driving={driving}")
+                       f"driving={driving}, "
+                       f"pos=({self.position_x:.2f}, {self.position_y:.2f}, {self.position_theta:.2f})")
             
             self.state_header_id += 1
             
@@ -320,7 +376,7 @@ class AGVSimulator:
             try:
                 await asyncio.wait_for(
                     self.shutdown_event.wait(),
-                    timeout=STATE_UPDATE_INTERVAL
+                    timeout=self.state_interval
                 )
                 break  # Shutdown requested
             except asyncio.TimeoutError:
@@ -352,12 +408,126 @@ class AGVSimulator:
 
 
 # ============================================================================
+# COMMAND LINE ARGUMENT PARSING
+# ============================================================================
+
+def parse_arguments():
+    """Parse command line arguments for AGV simulator configuration."""
+    parser = argparse.ArgumentParser(
+        description="AGV Simulator for VDA5050 protocol",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  %(prog)s --broker-url 192.168.1.100 --agv-serial AGV-002
+  %(prog)s --manufacturer MyCompany --broker-port 8883 --state-interval 1.0
+  %(prog)s --position-x 10.0 --position-y 5.0 --map-id warehouse_map
+  %(prog)s --no-movement --position-x 5.0 --position-y 5.0
+  %(prog)s --help
+        """
+    )
+    
+    # Broker configuration
+    parser.add_argument(
+        "--broker-url", 
+        default=DEFAULT_BROKER_URL,
+        help=f"MQTT broker URL (default: {DEFAULT_BROKER_URL})"
+    )
+    parser.add_argument(
+        "--broker-port", 
+        type=int, 
+        default=DEFAULT_BROKER_PORT,
+        help=f"MQTT broker port (default: {DEFAULT_BROKER_PORT})"
+    )
+    
+    # AGV identity configuration
+    parser.add_argument(
+        "--manufacturer", 
+        default=DEFAULT_AGV_MANUFACTURER,
+        help=f"AGV manufacturer name (default: {DEFAULT_AGV_MANUFACTURER})"
+    )
+    parser.add_argument(
+        "--agv-serial", 
+        default=DEFAULT_AGV_SERIAL,
+        help=f"AGV serial number (default: {DEFAULT_AGV_SERIAL})"
+    )
+    parser.add_argument(
+        "--version", 
+        default=DEFAULT_VDA5050_VERSION,
+        help=f"VDA5050 protocol version (default: {DEFAULT_VDA5050_VERSION})"
+    )
+    
+    # State update configuration
+    parser.add_argument(
+        "--state-interval", 
+        type=float, 
+        default=DEFAULT_STATE_UPDATE_INTERVAL,
+        help=f"State update interval in seconds (default: {DEFAULT_STATE_UPDATE_INTERVAL})"
+    )
+    
+    # AGV position configuration
+    parser.add_argument(
+        "--position-x", 
+        type=float, 
+        default=DEFAULT_POSITION_X,
+        help=f"Initial X position in meters (default: {DEFAULT_POSITION_X})"
+    )
+    parser.add_argument(
+        "--position-y", 
+        type=float, 
+        default=DEFAULT_POSITION_Y,
+        help=f"Initial Y position in meters (default: {DEFAULT_POSITION_Y})"
+    )
+    parser.add_argument(
+        "--position-theta", 
+        type=float, 
+        default=DEFAULT_POSITION_THETA,
+        help=f"Initial orientation in radians (default: {DEFAULT_POSITION_THETA})"
+    )
+    parser.add_argument(
+        "--map-id", 
+        default=DEFAULT_MAP_ID,
+        help=f"Map identifier (default: {DEFAULT_MAP_ID})"
+    )
+    parser.add_argument(
+        "--position-initialized", 
+        type=bool, 
+        default=DEFAULT_POSITION_INITIALIZED,
+        help=f"Whether position is initialized (default: {DEFAULT_POSITION_INITIALIZED})"
+    )
+    parser.add_argument(
+        "--no-movement", 
+        action="store_true",
+        default=False,
+        help="Disable position movement simulation (keep position static)"
+    )
+    
+    return parser.parse_args()
+
+
+# ============================================================================
 # MAIN
 # ============================================================================
 
 async def main():
     """Main entry point."""
-    simulator = AGVSimulator()
+    # Parse command line arguments
+    args = parse_arguments()
+    
+    # Create simulator with parsed configuration
+    simulator = AGVSimulator(
+        broker_url=args.broker_url,
+        broker_port=args.broker_port,
+        manufacturer=args.manufacturer,
+        serial_number=args.agv_serial,
+        version=args.version,
+        state_interval=args.state_interval,
+        position_x=args.position_x,
+        position_y=args.position_y,
+        position_theta=args.position_theta,
+        map_id=args.map_id,
+        position_initialized=args.position_initialized,
+        enable_movement=not args.no_movement
+    )
     
     # Setup signal handlers for graceful shutdown
     loop = asyncio.get_event_loop()
@@ -377,7 +547,10 @@ async def main():
 
 
 if __name__ == "__main__":
-    print("""
+    # Parse arguments early to show configuration
+    args = parse_arguments()
+    
+    print(f"""
 ╔══════════════════════════════════════════════════════════════════════╗
 ║                      AGV Simulator (VDA5050)                         ║
 ║                                                                      ║
@@ -389,7 +562,12 @@ if __name__ == "__main__":
 ║  • Receives and executes instant actions                            ║
 ║  • Gracefully shuts down with OFFLINE state                         ║
 ║                                                                      ║
-║  Make sure an MQTT broker is running on 127.0.0.1:1883             ║
+║  Configuration:                                                      ║
+║  • Broker: {args.broker_url}:{args.broker_port:<5}                                    ║
+║  • AGV: {args.manufacturer}/{args.agv_serial:<20}                         ║
+║  • Version: {args.version:<15} State Interval: {args.state_interval}s              ║
+║  • Position: ({args.position_x:.1f}, {args.position_y:.1f}, {args.position_theta:.1f}) Map: {args.map_id:<10} ║
+║  • Movement: {'Disabled' if args.no_movement else 'Enabled':<10}                                            ║
 ╚══════════════════════════════════════════════════════════════════════╝
     """)
     
