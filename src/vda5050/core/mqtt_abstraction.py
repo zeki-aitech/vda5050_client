@@ -133,7 +133,7 @@ class MQTTAbstraction:
         else:
             logger.error("MQTT on_connect error code %s", rc)
 
-    def _on_disconnect(self, client, userdata, rc, properties=None):
+    def _on_disconnect(self, client, userdata, flags, rc, properties=None):
         """
         Callback when the MQTT client disconnects.
         Triggers automatic reconnection on unexpected disconnect.
