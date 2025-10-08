@@ -6,7 +6,20 @@ build-backend = "setuptools.build_meta"
 name = "vda5050-client"
 version = "0.1.0"
 description = "Python client library for VDA5050 AGV communication protocol"
+readme = "README.md"
+license = {text = "MIT"}
 authors = [{name = "Nguyen Ha Trung (Zekki)", email = "trungnh-aitech@gmail.com"}]
+requires-python = ">=3.8"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
 dependencies = [
     "paho-mqtt>=2.0.0,<3.0.0",
     "pydantic>=2.0.0,<3.0.0",
