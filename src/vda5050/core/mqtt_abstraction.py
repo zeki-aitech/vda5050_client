@@ -111,6 +111,13 @@ class MQTTAbstraction:
             logger.error("Publish failed on topic %s: %s", topic, e)
             return False
 
+    def set_will(self, topic: str, payload: str, qos: int = 1, retain: bool = True):
+        """
+        Register the MQTT last-will the broker publishes if this client
+        drops without a clean disconnect. Must be called before connect().
+        """
+        self._client.will_set(topic, payload, qos=qos, retain=retain)
+
     async def subscribe(self, topic: str, handler: Callable, qos: int = 1):
         """
         Subscribe to a topic and register an async handler.
