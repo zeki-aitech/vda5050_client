@@ -41,8 +41,10 @@ class MQTTAbstraction:
         self._handlers: Dict[str, Callable] = {}
         self._wildcard_handlers: Dict[str, Callable] = {}
         self._running = False
-        # Capture event loop for thread-safe operations
-        self._loop = asyncio.get_event_loop()
+        # The loop paho's network thread must target; captured in connect()
+        # rather than here, so constructing the client outside the loop that
+        # later runs it cannot leave callbacks pointed at a dead loop.
+        self._loop = None
 
         # Configure underlying paho-mqtt client with latest callback API
         self._client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=self.client_id)
@@ -60,10 +62,10 @@ class MQTTAbstraction:
         if self._state == ConnectionState.CONNECTED:
             return True
         self._state = ConnectionState.CONNECTING
-        loop = asyncio.get_event_loop()
+        self._loop = asyncio.get_running_loop()
         try:
             # Establish connection in executor to avoid blocking
-            await loop.run_in_executor(
+            await self._loop.run_in_executor(
                 None,
                 self._client.connect,
                 self.broker_url,
@@ -99,7 +101,7 @@ class MQTTAbstraction:
         """
         if self._state != ConnectionState.CONNECTED:
             raise RuntimeError("Not connected to MQTT broker")
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         info = self._client.publish(topic, payload, qos=qos, retain=retain)
         try:
             # Wait for message acknowledgment
@@ -128,6 +130,9 @@ class MQTTAbstraction:
         """
         if rc == mqtt.MQTT_ERR_SUCCESS:
             self._state = ConnectionState.CONNECTED
+            if self._loop is None:
+                logger.error("on_connect fired before connect() captured a loop")
+                return
             # Wake up connect() using thread-safe method
             self._loop.call_soon_threadsafe(self._connection_event.set)
         else:
@@ -140,7 +145,7 @@ class MQTTAbstraction:
         """
         self._state = ConnectionState.DISCONNECTED
         self._connection_event.clear()
-        if rc != 0:
+        if rc != 0 and self._loop is not None:
             # Unexpected disconnect: start reconnect loop using thread-safe method
             self._loop.call_soon_threadsafe(
                 lambda: asyncio.create_task(self._reconnect())
@@ -152,6 +157,9 @@ class MQTTAbstraction:
         Queues messages for async processing.
         """
         payload = msg.payload.decode('utf-8')
+        if self._loop is None:
+            logger.error("Message on %s dropped: no event loop captured yet", msg.topic)
+            return
         # Use thread-safe method to queue message
         self._loop.call_soon_threadsafe(
             lambda: asyncio.create_task(self._message_queue.put((msg.topic, payload)))

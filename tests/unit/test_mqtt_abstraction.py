@@ -191,6 +191,10 @@ async def test_reconnect(monkeypatch):
         return True
     mqtt_abstraction.connect = fake_connect
 
+    # connect() would have captured the running loop; the patched fake
+    # bypasses it, so capture it the way connect() does
+    mqtt_abstraction._loop = asyncio.get_running_loop()
+
     # Trigger unexpected disconnect (paho CallbackAPIVersion.VERSION2
     # signature: client, userdata, flags, rc, properties)
     mqtt_abstraction._state = ConnectionState.CONNECTED
@@ -208,3 +212,26 @@ async def test_reconnect(monkeypatch):
     
     # Verify state is back to CONNECTED
     assert mqtt_abstraction._state == ConnectionState.CONNECTED
+
+# 8. Test that the event loop is captured at connect(), not construction
+#    - Constructing the client outside any running loop must work and
+#      leave _loop unset
+#    - connect() must capture the loop that runs it, so paho-thread
+#      callbacks target the right loop
+def test_loop_captured_at_connect(monkeypatch):
+    fake_client = Mock()
+    fake_client.connect = Mock()
+    fake_client.loop_start = Mock()
+    monkeypatch.setattr("paho.mqtt.client.Client", lambda api_version=None, client_id=None: fake_client)
+
+    # No running loop here - construction must not capture one
+    mqtt_abstraction = MQTTAbstraction("host", 1883)
+    assert mqtt_abstraction._loop is None
+
+    async def run_connect():
+        # Pre-set the connection event so connect() returns without a broker
+        mqtt_abstraction._connection_event.set()
+        assert await mqtt_abstraction.connect(timeout=1.0) is True
+        assert mqtt_abstraction._loop is asyncio.get_running_loop()
+
+    asyncio.run(run_connect())
