@@ -195,21 +195,30 @@ async def test_integration_smoke():
     
     # Register Master callbacks with proper signatures
     # These callbacks will be invoked when the Master receives messages from AGVs
+    # The master subscribes with wildcards, so on a shared broker it also
+    # receives retained messages from unrelated AGVs (e.g. a live robot
+    # stack on the same host). Filter every handler to this test's AGV.
     def on_connection_change(serial: str, connection_state: str):
+        if serial != serial_number:
+            return
         LOGGER.info(f"Master received connection change: {serial} -> {connection_state}")
         if connection_state == "ONLINE":
             connection_online_received.set()
         elif connection_state == "OFFLINE":
             connection_offline_received.set()
-    
+
     def on_factsheet_received(serial: str, factsheet_msg: Factsheet):
         nonlocal received_factsheet
+        if serial != serial_number:
+            return
         received_factsheet = factsheet_msg
         factsheet_received.set()
         LOGGER.info(f"Master received Factsheet from {serial}: {factsheet_msg.typeSpecification.seriesName}")
-    
+
     def on_state_update_received(serial: str, state_msg: State):
         nonlocal received_state
+        if serial != serial_number:
+            return
         received_state = state_msg
         state_received.set()
         LOGGER.info(f"Master received State from {serial}: operatingMode={state_msg.operatingMode}")
