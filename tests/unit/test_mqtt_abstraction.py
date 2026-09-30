@@ -191,9 +191,10 @@ async def test_reconnect(monkeypatch):
         return True
     mqtt_abstraction.connect = fake_connect
 
-    # Trigger unexpected disconnect
+    # Trigger unexpected disconnect (paho CallbackAPIVersion.VERSION2
+    # signature: client, userdata, flags, rc, properties)
     mqtt_abstraction._state = ConnectionState.CONNECTED
-    mqtt_abstraction._on_disconnect(fake_client, None, rc=1)
+    mqtt_abstraction._on_disconnect(fake_client, None, None, 1)
     
     # Verify state is set to DISCONNECTED
     assert mqtt_abstraction._state == ConnectionState.DISCONNECTED
