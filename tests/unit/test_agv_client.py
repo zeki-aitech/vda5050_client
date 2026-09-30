@@ -223,3 +223,20 @@ def test_send_methods_handle_failure(client, mock_mqtt, factsheet, state):
     assert asyncio.run(client.send_factsheet(factsheet)) is False
     assert asyncio.run(client.send_state(state)) is False
     assert asyncio.run(client.update_connection("OK")) is False
+
+
+def test_will_is_connectionbroken_on_connection_topic(client, mock_mqtt):
+    """connect() must arm a retained CONNECTIONBROKEN last-will before the MQTT connect."""
+    from vda5050.models.connection import Connection, ConnectionState
+
+    client._connected = False
+    import asyncio; asyncio.run(client.connect())
+
+    mock_mqtt.set_will.assert_called_once()
+    args, kwargs = mock_mqtt.set_will.call_args
+    assert args[0] == "uagv/v2/TestMan/Test001/connection"
+    assert kwargs == {"qos": 1, "retain": True}
+    will = Connection.from_mqtt_payload(args[1])
+    assert will.connectionState == ConnectionState.CONNECTIONBROKEN
+    assert will.manufacturer == "TestMan"
+    assert will.serialNumber == "Test001"

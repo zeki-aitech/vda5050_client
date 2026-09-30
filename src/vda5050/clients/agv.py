@@ -1,7 +1,8 @@
 # src/vda5050/clients/agv.py
 
 import logging
-from typing import Callable, List
+from datetime import datetime, timezone
+from typing import Callable, List, Optional
 from ..core.base_client import VDA5050BaseClient
 from ..models import Order, InstantActions
 from ..models.factsheet import Factsheet
@@ -29,7 +30,9 @@ class AGVClient(VDA5050BaseClient):
         # Lists of user-registered callbacks
         self._order_callbacks: List[Callable[[Order], None]] = []
         self._instant_callbacks: List[Callable[[InstantActions], None]] = []
-        
+        # Last factsheet sent, re-published on every (re)connect
+        self._factsheet: Optional[Factsheet] = None
+
         # Register handlers using base class API to ensure validation
         # Subscribe to this AGV's specific order and instantActions topics
         self.register_handler("order", self._handle_order)
@@ -40,6 +43,32 @@ class AGVClient(VDA5050BaseClient):
         # This method can be used for any non-subscription setup logic if needed
         pass
 
+    def _connection_message(self, connection_state: ConnectionState) -> Connection:
+        return Connection(
+            headerId=0,  # Connection messages typically use 0
+            timestamp=datetime.now(timezone.utc).isoformat(),
+            version=self.version,
+            manufacturer=self.manufacturer,
+            serialNumber=self.serial_number,
+            connectionState=connection_state,
+        )
+
+    def _configure_will(self):
+        """
+        VDA5050 requires the AGV's last-will to be a retained
+        CONNECTIONBROKEN on its connection topic, so master control learns
+        of a crash or lost link from the broker rather than never.
+        """
+        payload = self._connection_message(ConnectionState.CONNECTIONBROKEN).to_mqtt_payload()
+        if self.validator:
+            self.validator.validate_message("connection", payload)
+        self.mqtt.set_will(
+            self.topic_manager.get_publish_topic("connection"),
+            payload,
+            qos=1,
+            retain=True,
+        )
+
     async def _on_vda5050_connect(self):
         # Upon connect, publish connection state and factsheet
         logger.debug("AGVClient connected; sending connection state and factsheet")
@@ -47,7 +76,7 @@ class AGVClient(VDA5050BaseClient):
             # Publish ONLINE connection state
             await self.update_connection(ConnectionState.ONLINE)
             # Publish factsheet if available
-            if hasattr(self, '_factsheet'):
+            if self._factsheet is not None:
                 await self.send_factsheet(self._factsheet)
         except Exception as e:
             logger.error("Failed to send connection state or factsheet on connect: %s", e)
@@ -129,21 +158,10 @@ class AGVClient(VDA5050BaseClient):
             raise VDA5050Error("Not connected to VDA5050 system")
             
         try:
-            # Create proper Connection message
-            from datetime import datetime, timezone
-            connection_msg = Connection(
-                headerId=0,  # Connection messages typically use 0
-                timestamp=datetime.now(timezone.utc).isoformat(),
-                version=self.version,
-                manufacturer=self.manufacturer,
-                serialNumber=self.serial_number,
-                connectionState=connection_state
-            )
-            
             # Use the standard message publishing mechanism with retain=True for connection state
             return await self._publish_message(
                 message_type="connection",
-                message=connection_msg,
+                message=self._connection_message(connection_state),
                 retain=True
             )
         except Exception as e:

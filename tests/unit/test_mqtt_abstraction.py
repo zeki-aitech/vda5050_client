@@ -235,3 +235,13 @@ def test_loop_captured_at_connect(monkeypatch):
         assert mqtt_abstraction._loop is asyncio.get_running_loop()
 
     asyncio.run(run_connect())
+
+# 9. Test that set_will forwards to the paho client
+def test_set_will_registers_on_client(monkeypatch):
+    fake_client = Mock()
+    monkeypatch.setattr("paho.mqtt.client.Client", lambda api_version=None, client_id=None: fake_client)
+
+    mqtt_abstraction = MQTTAbstraction("host", 1883)
+    mqtt_abstraction.set_will("uagv/v2/M/S/connection", '{"x":1}', qos=1, retain=True)
+
+    fake_client.will_set.assert_called_once_with("uagv/v2/M/S/connection", '{"x":1}', qos=1, retain=True)

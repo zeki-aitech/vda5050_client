@@ -70,6 +70,10 @@ class VDA5050BaseClient(ABC):
         logger.info(f"Connecting VDA5050 client: {self.manufacturer}/{self.serial_number}")
         
         try:
+            # The last-will must be registered on the paho client before it
+            # connects; re-arming on every connect keeps it after reconnects.
+            self._configure_will()
+
             # Connect MQTT layer first
             success = await self.mqtt.connect()
             if not success:
@@ -94,6 +98,12 @@ class VDA5050BaseClient(ABC):
             logger.error(f"Failed to connect VDA5050 client: {e}")
             return False
     
+    def _configure_will(self):
+        """
+        Hook for clients that need an MQTT last-will (the AGV's
+        CONNECTIONBROKEN message). No-op by default.
+        """
+
     async def disconnect(self):
         """
         Disconnect from VDA5050 system.

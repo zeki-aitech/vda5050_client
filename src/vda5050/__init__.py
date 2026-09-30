@@ -8,7 +8,7 @@ This library provides both AGV and Master Control clients with full MQTT integra
 message validation, and callback-based event handling.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.1.2"
 __author__ = "Nguyen Ha Trung (Zekki)"
 __email__ = "trungnh.aitech@gmail.com"
 
