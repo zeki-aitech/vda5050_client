@@ -1,23 +1,37 @@
 # src/vda5050/core/base_client.py
+"""
+The asyncio clients: a thin layer over the threaded clients
+(clients/threaded.py), which do the MQTT and VDA5050 work. This layer only
+moves callbacks from the MQTT thread onto the asyncio loop, in arrival
+order, through one queue and one task.
+"""
 
 import asyncio
+import inspect
 import logging
 from abc import ABC, abstractmethod
-from typing import Optional, Callable
-from .mqtt_abstraction import MQTTAbstraction
-from .topic_manager import TopicManager
+from typing import Any, Callable, Optional
+
 from ..models.base import VDA5050Message
 from ..utils.exceptions import VDA5050Error
-from ..validation.validator import MessageValidator
+from .threaded_client import InvalidMessage, ThreadedVDA5050Client
 
 logger = logging.getLogger(__name__)
 
+
 class VDA5050BaseClient(ABC):
     """
-    Abstract base class for all VDA5050 clients.
-    Provides common MQTT integration and VDA5050 protocol handling.
+    Common part of the asyncio AGV and master control clients.
+
+    connect() starts the connection and waits for the first attempt: it
+    returns True if connected, False if the broker could not be reached;
+    either way the client goes on trying, and reconnects after every loss,
+    until disconnect(). Callbacks run on the loop that called connect().
+
+    Extra keyword arguments (client_id, keepalive, reconnect_min_delay,
+    reconnect_max_delay) go to the threaded client.
     """
-    
+
     def __init__(
         self,
         manufacturer: str,
@@ -28,220 +42,155 @@ class VDA5050BaseClient(ABC):
         version: str = "2.1.0",
         username: Optional[str] = None,
         password: Optional[str] = None,
-        validate_messages: bool = True
+        validate_messages: bool = True,
+        **options: Any,
     ):
-        # Store VDA5050 identity for topic construction
+        self.client = self._create_client(
+            broker_url=broker_url,
+            manufacturer=manufacturer,
+            serial_number=serial_number,
+            broker_port=broker_port,
+            interface_name=interface_name,
+            version=version,
+            username=username,
+            password=password,
+            validate_messages=validate_messages,
+            **options,
+        )
         self.manufacturer = manufacturer
         self.serial_number = serial_number
         self.interface_name = interface_name
         self.version = version
-        
-        # Initialize validation
-        self.validator = MessageValidator() if validate_messages else None
-        
-        # Initialize core components
-        self.mqtt = MQTTAbstraction(
-            broker_url=broker_url,
-            broker_port=broker_port,
-            client_id=f"{manufacturer}_{serial_number}",
-            username=username,
-            password=password
-        )
-        
-        self.topic_manager = TopicManager(
-            interface_name=interface_name,
-            version=version,
-            manufacturer=manufacturer,
-            serial_number=serial_number
-        )
-        
-        # Track connection state to prevent double connects
-        self._connected = False
-        
-    async def connect(self) -> bool:
-        """
-        Connect to VDA5050 system.
-        Returns True on success, False on failure.
-        """
-        # Avoid redundant connections
-        if self._connected:
-            return True
-            
-        logger.info(f"Connecting VDA5050 client: {self.manufacturer}/{self.serial_number}")
-        
-        try:
-            # The last-will must be registered on the paho client before it
-            # connects; re-arming on every connect keeps it after reconnects.
-            self._configure_will()
+        self.validator = self.client.validator
+        self.topic_manager = self.client.topic_manager
+        # The MQTT transport; its _state is read by applications of 0.1.x.
+        self.mqtt = self.client.transport
 
-            # Connect MQTT layer first
-            success = await self.mqtt.connect()
-            if not success:
-                logger.error("MQTT connection failed")
-                return False
-                
-            # Setup VDA5050-specific subscriptions
-            await self._setup_subscriptions()
-            
-            # Setup registered handlers
-            await self._setup_registered_handlers()
-            
-            # Mark as connected before calling connect hook
-            self._connected = True
-            
-            # Perform client-specific initialization
-            await self._on_vda5050_connect()
-            logger.info("VDA5050 client connected successfully")
-            return True
-            
-        except Exception as e:
-            logger.error(f"Failed to connect VDA5050 client: {e}")
-            return False
-    
-    def _configure_will(self):
-        """
-        Hook for clients that need an MQTT last-will (the AGV's
-        CONNECTIONBROKEN message). No-op by default.
-        """
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._queue: Optional[asyncio.Queue] = None
+        self._processor: Optional[asyncio.Task] = None
 
-    async def disconnect(self):
+    @abstractmethod
+    def _create_client(self, **kwargs) -> ThreadedVDA5050Client:
+        """The threaded client this layer wraps."""
+
+    # ── lifecycle ─────────────────────────────────────────────
+
+    async def connect(self, timeout: float = 10.0) -> bool:
         """
-        Disconnect from VDA5050 system.
+        Start connecting and wait for the first attempt (at most timeout
+        seconds). True if connected. If False, the client keeps trying in
+        the background; is_connected() and on_broker_connection() tell when
+        it succeeds.
         """
-        if not self._connected:
-            return
-            
-        logger.info("Disconnecting VDA5050 client")
-        
+        self._start_processor()
+        if self.client.is_connected():
+            return True
+        logger.info("Connecting VDA5050 client: %s/%s", self.manufacturer, self.serial_number)
+        self.client.start()
+        loop = asyncio.get_running_loop()
+        connected = await loop.run_in_executor(
+            None, self.client.transport.wait_first_attempt, timeout
+        )
+        if not connected:
+            logger.warning("VDA5050 client not connected yet; it keeps trying")
+        return connected
+
+    async def disconnect(self) -> None:
+        """Stop for good: (AGV) OFFLINE, a clean disconnect, no more retries."""
         try:
-            # Client-specific cleanup
-            await self._on_vda5050_disconnect()
-            
-            # Disconnect MQTT
-            await self.mqtt.disconnect()
-            
-            self._connected = False
-            logger.info("VDA5050 client disconnected")
-            
-        except Exception as e:
-            logger.error(f"Error during disconnect: {e}")
-    
-    @abstractmethod
-    async def _setup_subscriptions(self):
+            await asyncio.get_running_loop().run_in_executor(None, self.client.stop)
+        finally:
+            await self._stop_processor()
+
+    def is_connected(self) -> bool:
+        """True while the MQTT connection is up."""
+        return self.client.is_connected()
+
+    # ── callbacks ─────────────────────────────────────────────
+
+    def on_broker_connection(self, callback: Callable[[bool], Any]) -> None:
+        """callback(connected) on each connection and loss; see the threaded client."""
+        self.client.on_broker_connection(lambda connected: self._post(callback, connected))
+
+    def on_invalid_message(self, callback: Callable[[InvalidMessage], Any]) -> None:
+        """callback(InvalidMessage) for each incoming message not delivered."""
+        self.client.on_invalid_message(lambda message: self._post(callback, message))
+
+    def register_handler(
+        self,
+        message_type: str,
+        handler: Callable,
+        all_manufacturers: bool = False,
+        all_serials: bool = False,
+    ) -> None:
         """
-        Setup MQTT subscriptions for this client type.
-        Must be implemented by subclasses.
+        await handler(topic, payload) for each message of message_type that
+        is JSON and (if validating) passes the schema.
         """
-        pass
-    
-    @abstractmethod
-    async def _on_vda5050_connect(self):
-        """
-        Called after successful VDA5050 connection.
-        Must be implemented by subclasses for role-specific initialization.
-        """
-        pass
-    
-    async def _on_vda5050_disconnect(self):
-        """
-        Called before VDA5050 disconnection.
-        Can be overridden by subclasses for cleanup.
-        """
-        pass
-    
+        self.client.register_handler(
+            message_type,
+            lambda topic, payload: self._post(handler, topic, payload),
+            all_manufacturers=all_manufacturers,
+            all_serials=all_serials,
+        )
+
+    # ── sending ───────────────────────────────────────────────
+
     async def _publish_message(
         self,
         message_type: str,
         message: VDA5050Message,
         target_manufacturer: Optional[str] = None,
         target_serial: Optional[str] = None,
-        retain: bool = False
+        retain: bool = False,
     ) -> bool:
         """
-        Publish a VDA5050 message to the appropriate MQTT topic.
-        If target_manufacturer and target_serial are provided, builds a
-        Master→AGV topic; otherwise publishes from this client.
+        Publish without waiting for an acknowledgement. Raises VDA5050Error
+        if not connected or the message is invalid. retain is kept for
+        compatibility and ignored: the topic decides (VDA5050 6.14, 6.15).
         """
-        if not self._connected:
-            raise VDA5050Error("Not connected to VDA5050 system")
+        if not self.client.publish(message_type, message, target_manufacturer, target_serial):
+            raise VDA5050Error(f"Not connected: {message_type} not sent")
+        return True
 
-        try:
-            # Generate payload first (properly serializes datetime to ISO8601 strings)
-            payload = message.to_mqtt_payload()
-            
-            # Validate message before publishing
-            if self.validator:
-                self.validator.validate_message(message_type, payload)
-                logger.debug(f"Message {message_type} passed validation")
+    # ── moving work onto the loop ─────────────────────────────
 
-            if target_manufacturer and target_serial:
-                topic = self.topic_manager.get_target_topic(
-                    message_type, target_manufacturer, target_serial
-                )
-            else:
-                topic = self.topic_manager.get_publish_topic(message_type)
-            success = await self.mqtt.publish(topic, payload, retain=retain)
-            if not success:
-                raise VDA5050Error(f"Failed to publish {message_type} message")
-            logger.debug(f"Published {message_type} to {topic}")
-            return True
-
-        except Exception as e:
-            logger.error(f"Error publishing {message_type}: {e}")
-            raise VDA5050Error(str(e))
-    
-    def register_handler(self, message_type: str, handler: Callable, all_manufacturers: bool = False, all_serials: bool = False):
-        """
-        Register handler for incoming VDA5050 messages.
-        The actual subscription will be set up during connection.
-        
-        Args:
-            message_type: VDA5050 message type to handle
-            handler: Async function to call when message received
-            all_manufacturers: Subscribe to all manufacturers (wildcard)
-            all_serials: Subscribe to all serials (wildcard)
-        """
-        # Store handler registration for later use during connection
-        if not hasattr(self, '_registered_handlers'):
-            self._registered_handlers = []
-        
-        self._registered_handlers.append({
-            'message_type': message_type,
-            'handler': handler,
-            'all_manufacturers': all_manufacturers,
-            'all_serials': all_serials
-        })
-    
-    async def _setup_registered_handlers(self):
-        """Set up MQTT subscriptions for all registered handlers."""
-        if not hasattr(self, '_registered_handlers'):
+    def _post(self, fn: Callable, *args: Any) -> None:
+        """From the MQTT thread: queue fn(*args) for the processor task."""
+        loop, queue = self._loop, self._queue
+        if loop is None or queue is None:
+            logger.warning("VDA5050: no event loop yet (connect() not awaited); callback dropped")
             return
-            
-        for registration in self._registered_handlers:
-            message_type = registration['message_type']
-            handler = registration['handler']
-            all_manufacturers = registration['all_manufacturers']
-            all_serials = registration['all_serials']
-            
-            # Build topic for this message type
-            topic = self.topic_manager.get_subscription_topic(
-                message_type, all_manufacturers=all_manufacturers, all_serials=all_serials
-            )
-            
-            # Create wrapper that handles JSON parsing and error catching
-            async def message_wrapper(topic: str, payload: str, msg_type=message_type, h=handler):
-                try:
-                    if self.validator:
-                        self.validator.validate_message(msg_type, payload)
-                        logger.debug(f"Incoming {msg_type} message passed validation")
-                    logger.debug(f"Received {msg_type} message on {topic}")
-                    await h(topic, payload)
-                except Exception as e:
-                    logger.error(f"Error in {msg_type} handler: {e}")
-            
-            # Subscribe to MQTT topic
-            await self.mqtt.subscribe(topic, message_wrapper)
-    
-    def is_connected(self) -> bool:
-        """Check if client is connected to VDA5050 system."""
-        return self._connected
+        try:
+            loop.call_soon_threadsafe(queue.put_nowait, (fn, args))
+        except RuntimeError:
+            logger.warning("VDA5050: event loop closed; callback dropped")
+
+    def _start_processor(self) -> None:
+        loop = asyncio.get_running_loop()
+        if self._processor is not None and not self._processor.done() and self._loop is loop:
+            return
+        self._loop = loop
+        self._queue = asyncio.Queue()
+        self._processor = loop.create_task(self._process())
+
+    async def _stop_processor(self) -> None:
+        task, self._processor = self._processor, None
+        if task is not None and not task.done():
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+
+    async def _process(self) -> None:
+        """The one task that runs callbacks, in arrival order."""
+        while True:
+            fn, args = await self._queue.get()
+            try:
+                result = fn(*args)
+                if inspect.isawaitable(result):
+                    await result
+            except Exception:
+                logger.exception("VDA5050: callback %s failed", getattr(fn, "__name__", fn))

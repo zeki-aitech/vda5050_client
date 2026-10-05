@@ -1,4 +1,4 @@
-# tests/integration/test_integration_smoke.py
+# tests/broker/test_integration_smoke.py
 """
 VDA5050 Integration Smoke Test
 
@@ -32,9 +32,8 @@ CLIENT CONFIGURATION:
 
 NETWORK REQUIREMENTS:
 ====================
-- MQTT broker running on 127.0.0.1:1883
-- Docker container with --network host (for broker access)
-- No authentication required for broker connection
+- mosquitto installed; the test starts its own broker on 127.0.0.1 on a
+  free port (the broker fixture, conftest.py)
 
 TEST VALIDATION POINTS:
 ======================
@@ -67,10 +66,9 @@ logging.basicConfig(level=logging.INFO)
 LOGGER = logging.getLogger("integration")
 
 BROKER_URL = "127.0.0.1"
-BROKER_PORT = 1883
 
 @pytest.mark.asyncio
-async def test_integration_smoke():
+async def test_integration_smoke(broker):
     """
     Integration smoke test verifying the complete VDA5050 message flow
     across all layers: schema validation, Pydantic parsing, MQTT transport, and callback invocation.
@@ -113,7 +111,7 @@ async def test_integration_smoke():
         broker_url=BROKER_URL,
         manufacturer=manufacturer,
         serial_number=serial_number,
-        broker_port=BROKER_PORT,
+        broker_port=broker.port,
         validate_messages=True
     )
     
@@ -176,7 +174,7 @@ async def test_integration_smoke():
     
     # Connect AGV (this will publish ONLINE connection state and factsheet)
     # Note: Connection state and factsheet are published as retained messages
-    agv._factsheet = factsheet  # Set factsheet before connect
+    await agv.send_factsheet(factsheet)  # not connected yet: kept, sent on connect
     await agv.connect()
     LOGGER.info("AGV connected - should have published ONLINE connection state and factsheet")
     
@@ -189,7 +187,7 @@ async def test_integration_smoke():
         broker_url=BROKER_URL,
         manufacturer="MasterControl",
         serial_number="MC001",
-        broker_port=BROKER_PORT,
+        broker_port=broker.port,
         validate_messages=True
     )
     

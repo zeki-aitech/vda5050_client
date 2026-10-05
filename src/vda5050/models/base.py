@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Dict, List, Optional, Union
 
-from pydantic import BaseModel, Field, confloat, conint
+from pydantic import BaseModel, Field, confloat, conint, field_serializer
 
 
 class VDA5050Message(BaseModel):
@@ -50,6 +50,20 @@ class VDA5050Message(BaseModel):
     manufacturer: str = Field(..., description='Manufacturer of the AGV.')
     serialNumber: str = Field(..., description='Serial number of the AGV.')
     
+    @field_serializer("timestamp", when_used="json")
+    def _timestamp_utc(self, value: Optional[datetime]) -> Optional[str]:
+        """
+        VDA5050 6.4: UTC, written with Z (e.g. 2017-04-15T11:40:03.12Z). A
+        time with a zone is converted to UTC, its fraction of a second kept
+        as given; a time without one is written as it is (the clients
+        refuse to send it).
+        """
+        if value is None:
+            return None
+        if value.tzinfo is None or value.utcoffset() is None:
+            return value.isoformat()
+        return value.astimezone(timezone.utc).replace(tzinfo=None).isoformat() + "Z"
+
     def to_mqtt_payload(self) -> str:
         """
         Convert the message to a JSON payload for MQTT.
