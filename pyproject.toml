@@ -4,19 +4,19 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "vda5050-client"
-version = "0.1.2"
+version = "0.2.0"
 description = "Python client library for VDA5050 AGV communication protocol"
 readme = "README.md"
 license = {text = "MIT"}
 authors = [{name = "Nguyen Ha Trung (Zekki)", email = "trungnh-aitech@gmail.com"}]
-requires-python = ">=3.8"
+requires-python = ">=3.10"
 classifiers = [
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
 ]
@@ -30,7 +30,7 @@ dependencies = [
 where = ["src"]
 
 [tool.setuptools.package-data]
-vda5050 = ["validation/schemas/*.json"]
+vda5050 = ["validation/schemas/*.json", "validation/schemas/official-2.1.0/*"]
 
 [dependency-groups]
 dev = [

@@ -112,17 +112,13 @@ class TestVisualizationMissingFields:
         "manufacturer",
         "serialNumber",
     ])
-    def test_missing_required_header_field(self, field):
-        """Test that missing any required header field raises ValidationError."""
+    def test_missing_header_field_accepted(self, field):
+        """The official 2.1.0 schema requires no header field (0.2.0, L8)."""
         payload = make_minimal_visualization()
         del payload[field]
-        
-        with pytest.raises(ValidationError) as exc_info:
-            Visualization(**payload)
-        
-        error_message = str(exc_info.value)
-        assert field in error_message.lower() or field in error_message
-    
+
+        assert getattr(Visualization(**payload), field) is None
+
     def test_agv_position_missing_required_fields(self):
         """Test that agvPosition with missing required fields is rejected."""
         payload = make_minimal_visualization(
@@ -499,17 +495,16 @@ class TestVisualizationDataIntegrity:
 class TestVisualizationErrorMessages:
     """Tests that Visualization produces clear error messages (Requirement 9)."""
     
-    def test_missing_header_field_error(self):
-        """Test that missing header field produces clear error."""
-        payload = make_minimal_visualization()
-        del payload["headerId"]
-        
+    def test_wrong_header_field_error(self):
+        """Test that a header field of the wrong type produces a clear error."""
+        payload = make_minimal_visualization(headerId="not a number")
+
         with pytest.raises(ValidationError) as exc_info:
             Visualization(**payload)
-        
+
         error_str = str(exc_info.value)
         assert "headerId" in error_str or "header_id" in error_str.lower()
-    
+
     def test_invalid_nested_field_error(self):
         """Test that errors in nested objects reference the field path."""
         payload = make_minimal_visualization(

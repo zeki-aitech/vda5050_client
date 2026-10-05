@@ -7,21 +7,29 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.10: the robot stack (Ubuntu 22.04); the newest for the rest.
+        python-version: ["3.10", "3.13"]
+    env:
+      # The tests in tests/broker start their own mosquitto on a free port
+      # of 127.0.0.1; here a missing mosquitto fails them instead of
+      # skipping them.
+      VDA5050_REQUIRE_BROKER: "1"
     steps:
       - uses: actions/checkout@v4
 
-      # The integration smoke test needs an MQTT broker on 127.0.0.1:1883.
-      # mosquitto 2.x with no listener configured runs in local-only mode:
-      # loopback only, anonymous allowed - exactly what the test expects.
+      # Only the binary is needed: the tests start their own brokers.
       - name: Install mosquitto
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq mosquitto
-          sudo systemctl start mosquitto
+          sudo systemctl stop mosquitto || true
 
       - uses: astral-sh/setup-uv@v5
         with:
-          python-version: "3.10"
+          python-version: ${{ matrix.python-version }}
 
       - name: Install dependencies
         run: uv sync

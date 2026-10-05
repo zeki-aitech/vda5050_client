@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from enum import Enum
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field, confloat, conint
@@ -475,6 +476,18 @@ class VehicleConfig(BaseModel):
 
 
 class Factsheet(VDA5050Message):
+    # The official schema leaves headerId and timestamp out of "required";
+    # a factsheet without them is accepted on receive. The clients fill
+    # them in on send.
+    headerId: Optional[conint(ge=0)] = Field(
+        None,
+        description='Header ID of the message. The headerId is defined per topic and incremented by 1 with each sent (but not necessarily received) message.',
+    )
+    timestamp: Optional[datetime] = Field(
+        None,
+        description='Timestamp in ISO8601 format (YYYY-MM-DDTHH:mm:ss.ssZ).',
+        examples=['1991-03-11T11:40:03.12Z'],
+    )
     typeSpecification: TypeSpecification = Field(
         ...,
         description='These parameters generally specify the class and the capabilities of the AGV',

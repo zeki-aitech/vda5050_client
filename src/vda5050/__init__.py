@@ -5,18 +5,27 @@ VDA5050 Python Client Library
 A comprehensive Python client library for implementing VDA5050 AGV communication protocol.
 
 This library provides both AGV and Master Control clients with full MQTT integration,
-message validation, and callback-based event handling.
+message validation, and callback-based event handling: ThreadedAGVClient and
+ThreadedMasterControlClient need no asyncio; AGVClient and MasterControlClient
+are the same for an asyncio application.
 """
 
-__version__ = "0.1.2"
+__version__ = "0.2.0"
 __author__ = "Nguyen Ha Trung (Zekki)"
 __email__ = "trungnh.aitech@gmail.com"
 
 # Expose main client classes for convenient imports
 from .clients.agv import AGVClient
 from .clients.master_control import MasterControlClient
+from .clients.threaded import ThreadedAGVClient, ThreadedMasterControlClient
+from .core.threaded_client import InvalidMessage
+from .core.transport import ConnectionState as MQTTConnectionState
 
 __all__ = [
     "AGVClient",
     "MasterControlClient",
+    "ThreadedAGVClient",
+    "ThreadedMasterControlClient",
+    "InvalidMessage",
+    "MQTTConnectionState",
 ]
